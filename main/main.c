@@ -5,74 +5,23 @@
 #include "math.h"
 #include "driver/gpio.h"
 
-#define CYCLE_TIME 50
+#define CYCLE_TIME 1000
 #define LED_GPIO 8
 #define LEFT_BUTTON_GPIO 9
 #define RIGHT_BUTTON_GPIO 2
 #define BUTTON_DEBOUNCE 5
 
-
-static int current_button_debounce = 0;
+static int buttonDebounce = 200;
 
 static led_strip_handle_t led_strip;
 
-static int OK[25] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0};
-static int BAD[25] = { 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1};
-static int* mode = OK;
+static int configuredTimeInSeconds = 60; // start with 1 minute
+static int setTimeInSeconds = 0;
+static bool isRunning = false;
 
-#define SQUARE(x) ((x) * (x))
-
-#define RNG_BASE 0x60026000
-#define RNG_DATA_REG_OFFS 0xB0
-
-volatile uint32_t *pRngDataReg = (volatile uint32_t *)(RNG_BASE | RNG_DATA_REG_OFFS);
-
-inline uint32_t nextRand()
+static void configure_LED()
 {
-    return *pRngDataReg;
-}
-
-bool equalDistChi2(const uint32_t n[], uint32_t m, uint32_t n0, uint32_t chi2)
-{
-    uint32_t squaresum = 0;
-    for (int i = 0; i < m; i += 1)
-    {
-        squaresum += SQUARE(n[i] - n0);
-    }
-
-    uint32_t x2 = squaresum / n0;
-    return (x2 <= chi2);
-}
-
-static bool testRandomness(uint32_t dice_value) {
-    uint32_t *n = calloc(dice_value, sizeof(uint32_t));
-    if (n == NULL)
-    {
-        printf("No memory :( \n");
-    }
-    else
-    {
-
-        for (int i = 0; i < 10000000; i++)
-        {
-            n[nextRand() % dice_value] += 1;
-        }
-        for (int i = 0; i < dice_value; i += 1)
-        {
-            printf("%d : %" PRIu32 "\n", i + 1, n[i]);
-        }
-
-        bool ok = equalDistChi2(n, dice_value, 10000000 / dice_value, 9);
-        free(n);
-        n = NULL;
-        return ok;
-    }
-
-    return false;
-}
-
-static void configure_LED() {
-        /* LED strip initialization with the GPIO and pixels number*/
+    /* LED strip initialization with the GPIO and pixels number*/
     led_strip_config_t strip_config = {
         .strip_gpio_num = LED_GPIO,
         .max_leds = 25, // at least one LED on board
@@ -90,43 +39,118 @@ static void configure_LED() {
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = true,
         .pull_down_en = false,
-        .intr_type = GPIO_INTR_DISABLE
-    };
+        .intr_type = GPIO_INTR_DISABLE};
     gpio_config(&gpioConfigIn);
+}
+
+static void displayRemainingTime()
+{
+    int minutes = configuredTimeInSeconds / 60;
+    int seconds = configuredTimeInSeconds % 60;
+
+    // minutes
+    for (int i = 0; i < 5; i++)
+    {
+        if (minutes & (1 << (4 - i)))
+        {
+            led_strip_set_pixel(led_strip, i, 0, 0, 255);
+        }
+    }
+
+    // seconds
+    for (int i = 0; i < 5; i++)
+    {
+        if (seconds & (1 << (4 - i)))
+        {
+            led_strip_set_pixel(led_strip, i + 5, 0, 0, 255);
+        }
+    }
+}
+
+void static paintProgress()
+{
+    float progress = (float)(setTimeInSeconds - configuredTimeInSeconds) / setTimeInSeconds;
+    int redValue = 255 - (255 * progress);
+    int greenValue = 255 * progress;
+    for (int y = 2; y < 5; y++)
+    {
+        for (int z = 0; z < 5; z++)
+        {
+            led_strip_set_pixel(led_strip, z + (y * 5), redValue, greenValue, 0);
+        }
+    }
 }
 
 void app_main(void)
 {
+    // time not really synced :( can we find a way to do that?
     configure_LED();
 
-    while (1) {
-        int isClicked = gpio_get_level(LEFT_BUTTON_GPIO) == 0;
-        if(isClicked) {
-            for(int i =0; i< 25; i++) {
-                led_strip_set_pixel(led_strip, i, 0, 10, 0);
-            }
-            led_strip_refresh(led_strip);
+    while (1)
+    {
+        led_strip_clear(led_strip);
+        if (!isRunning)
+        {
+            // time is not running | configuring time
 
-            bool ok = testRandomness(6);
-            if(ok) {
-                mode = OK;
-            } else {
-                mode = BAD;
+            if (gpio_get_level(LEFT_BUTTON_GPIO) == 0)
+            {
+                // add a minute
+                configuredTimeInSeconds = (configuredTimeInSeconds % (15 * 60)) + (60);
+
+                vTaskDelay(buttonDebounce / portTICK_PERIOD_MS);
+            }
+            else if (gpio_get_level(RIGHT_BUTTON_GPIO) == 0)
+            {
+                setTimeInSeconds = configuredTimeInSeconds;
+                paintProgress();
+                isRunning = true;
             }
 
-            for (int i = 0; i < 25; i++) {
-                
-                if(mode[i] == 0) {
-                    led_strip_set_pixel(led_strip, i, 0, 0, 0);
-                } else {
-                    led_strip_set_pixel(led_strip, i, 0, 0, 50);
-                }
-            }
-            led_strip_refresh(led_strip);
+            displayRemainingTime();
         }
+        else
+        {
+            // time is running
+            configuredTimeInSeconds -= 1;
 
-        vTaskDelay(CYCLE_TIME / portTICK_PERIOD_MS);
+            if (configuredTimeInSeconds > 0)
+            {
+                // show decay
+                paintProgress();
+            }
+            else
+            {
+                // make flashy thing
+                isRunning = false;
+                for (int i = 0; i < 20; i++)
+                {
+                    // rows 3 -5
+                    for (int y = 2; y < 5; y++)
+                    {
+                        for (int z = 0; z < 5; z++)
+                        {
+                            led_strip_set_pixel(led_strip, z + (y * 5), 0, i % 2 == 0 ? 255 : 0, 0);
+                        }
+                    }
+                    led_strip_refresh(led_strip);
+                    vTaskDelay(500 / portTICK_PERIOD_MS);
+                }
+
+                // reset time
+                configuredTimeInSeconds = 60;
+            }
+            displayRemainingTime();
+        }
+        led_strip_refresh(led_strip);
+
+        if (isRunning)
+        {
+            vTaskDelay(CYCLE_TIME / portTICK_PERIOD_MS);
+        }
+        else
+        {
+            vTaskDelay(50 / portTICK_PERIOD_MS);
+        }
     }
-
-    
 }
