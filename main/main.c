@@ -91,8 +91,47 @@ void read_temperature_and_rh() {
     printf("Temperatur: %.2f\n", calc_temp);
 }
 
+static void displayRemainingTime()
+{
+    int minutes = configuredTimeInSeconds / 60;
+    int seconds = configuredTimeInSeconds % 60;
+
+    // minutes
+    for (int i = 0; i < 5; i++)
+    {
+        if (minutes & (1 << (4 - i)))
+        {
+            led_strip_set_pixel(led_strip, i, 0, 0, 255);
+        }
+    }
+
+    // seconds
+    for (int i = 0; i < 5; i++)
+    {
+        if (seconds & (1 << (4 - i)))
+        {
+            led_strip_set_pixel(led_strip, i + 5, 0, 0, 255);
+        }
+    }
+}
+
+void static paintProgress()
+{
+    float progress = (float)(setTimeInSeconds - configuredTimeInSeconds) / setTimeInSeconds;
+    int redValue = 255 - (255 * progress);
+    int greenValue = 255 * progress;
+    for (int y = 2; y < 5; y++)
+    {
+        for (int z = 0; z < 5; z++)
+        {
+            led_strip_set_pixel(led_strip, z + (y * 5), redValue, greenValue, 0);
+        }
+    }
+}
+
 void app_main(void)
 {
+    // time not really synced :( can we find a way to do that?
     configure_LED();
     i2c_port_t i2c_num = I2C_NUM_0;
     initI2C(i2c_num);
