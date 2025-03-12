@@ -5,17 +5,17 @@
     "idf.customExtraVars": {
         "OPENOCD_SCRIPTS": "C:\\Users\\Nico\\.espressif\\tools\\openocd-esp32\\v0.12.0-esp32-20240318/openocd-esp32/share/openocd/scripts",
         "IDF_CCACHE_ENABLE": "1",
-        "ESP_ROM_ELF_DIR": "C:\\Users\\Nico\\.espressif\\tools\\esp-rom-elfs\\20240305/"
+        "ESP_ROM_ELF_DIR": "C:\\Users\\Nico\\.espressif\\tools\\esp-rom-elfs\\20240305/",
+        "IDF_TARGET": "esp32c3"
     },
     "idf.espIdfPathWin": "C:\\Users\\Nico\\esp\\v5.3.1\\esp-idf",
-    "idf.openOcdConfigs": [
-        "board/esp32c3-builtin.cfg"
-    ],
+    "idf.openOcdConfigs": ["board/esp32c3-builtin.cfg"],
     "idf.portWin": "COM5",
     "idf.pythonBinPathWin": "C:\\Users\\Nico\\.espressif\\python_env\\idf5.3_py3.11_env\\Scripts\\python.exe",
     "idf.toolsPathWin": "C:\\Users\\Nico\\.espressif",
     "idf.flashType": "UART",
     "files.associations": {
         "gpio.h": "c"
-    }
+    },
+    "idf.port": "/dev/ttyACM0"
 }
