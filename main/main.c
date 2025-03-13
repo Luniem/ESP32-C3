@@ -20,13 +20,12 @@ bool lightLED = false;
 SemaphoreHandle_t s = NULL;
 
 static void configureLED() {
-        /* LED strip initialization with the GPIO and pixels number*/
     led_strip_config_t strip_config = {
         .strip_gpio_num = 8,
-        .max_leds = 25, // at least one LED on board
+        .max_leds = 25, 
     };
     led_strip_rmt_config_t rmt_config = {
-        .resolution_hz = 10 * 1000 * 1000, // 10MHz
+        .resolution_hz = 10 * 1000 * 1000,
         .flags.with_dma = false,
     };
     led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip);
@@ -56,8 +55,8 @@ void checkButtonPress() {
             } else {
                 lightLED = false;
             }
-
-            xSemaphoreGive(s);
+            
+            xTaskNotify(gLedTaskHandle, lightLED, eSetValueWithOverwrite);
         }
 
         vTaskDelay(50 / portTICK_PERIOD_MS);
@@ -66,11 +65,11 @@ void checkButtonPress() {
 
 void ledLightTask() {
     while (true) {
-        xSemaphoreTake(s, portMAX_DELAY);
-        printf("T\n");
+        uint32_t notificationValue;
+        xTaskNotifyWait(0, 0, &notificationValue, portMAX_DELAY);
 
-        if(lightLED) {
-            led_strip_set_pixel(led_strip, 25/2, 0, 50, 0); // gloomy green light on middle led
+        if(notificationValue) {
+            led_strip_set_pixel(led_strip, 25/2, 15, 15, 15); // gloomy green light on middle led
         } else {
             led_strip_clear(led_strip);
         }
