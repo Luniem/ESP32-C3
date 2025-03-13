@@ -17,6 +17,8 @@ TaskHandle_t gButtonCheckTaskHandle = NULL;
 
 bool lightLED = false;
 
+SemaphoreHandle_t s = NULL;
+
 static void configureLED() {
         /* LED strip initialization with the GPIO and pixels number*/
     led_strip_config_t strip_config = {
@@ -44,18 +46,29 @@ static void configureGPIOButton() {
 
 void checkButtonPress() {
     while (true) {
-        if(gpio_get_level(LEFT_BUTTON_GPIO) == 0) {
-            lightLED = true;
-        } else {
-            lightLED = false;
+        bool pressed = gpio_get_level(LEFT_BUTTON_GPIO) == 0;
+        bool shouldTurnOn = pressed && !lightLED;
+        bool shouldTurnOff = !pressed && lightLED;
+
+        if (shouldTurnOn || shouldTurnOff) {
+            if(shouldTurnOn) {
+                lightLED = true;
+            } else {
+                lightLED = false;
+            }
+
+            xSemaphoreGive(s);
         }
 
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 }
 
 void ledLightTask() {
     while (true) {
+        xSemaphoreTake(s, portMAX_DELAY);
+        printf("T\n");
+
         if(lightLED) {
             led_strip_set_pixel(led_strip, 25/2, 0, 50, 0); // gloomy green light on middle led
         } else {
@@ -68,10 +81,11 @@ void ledLightTask() {
 
 void app_main(void)
 {
+    s = xSemaphoreCreateCounting(100, 0);
     printf("Start of Program\n");
 
-    configureLED();
     configureGPIOButton();
+    configureLED();
 
     xTaskCreate(checkButtonPress, "CHECK_BUTTON", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gButtonCheckTaskHandle);
     xTaskCreate(ledLightTask, "LED_LIGHT", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gLedTaskHandle);
