@@ -4,6 +4,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include <freertos/task.h>
+#include <freertos/queue.h>
 
 #define LEFT_BUTTON_GPIO 9
 
@@ -15,7 +16,17 @@ static led_strip_handle_t led_strip;
 TaskHandle_t gLedTaskHandle = NULL;
 TaskHandle_t gButtonCheckTaskHandle = NULL;
 
-bool lightLED = false;
+typedef enum {
+    BUTTON_PRESSED,
+    BUTTON_RELEASED
+} button_event_type_t;
+
+typedef struct {
+    button_event_type_t event;
+    TickType_t timestamp;
+} button_event_data_t;
+
+QueueHandle_t button_event_queue = NULL;
 
 SemaphoreHandle_t s = NULL;
 
@@ -44,34 +55,54 @@ static void configureGPIOButton() {
 }
 
 void checkButtonPress() {
+    int previousButtonState = 1;
+    int newButtonState = 0;
+    
     while (true) {
-        bool pressed = gpio_get_level(LEFT_BUTTON_GPIO) == 0;
-        bool shouldTurnOn = pressed && !lightLED;
-        bool shouldTurnOff = !pressed && lightLED;
+        newButtonState = gpio_get_level(LEFT_BUTTON_GPIO);
 
-        if (shouldTurnOn || shouldTurnOff) {
-            if(shouldTurnOn) {
-                lightLED = true;
-            } else {
-                lightLED = false;
-            }
-            
-            xTaskNotify(gLedTaskHandle, lightLED, eSetValueWithOverwrite);
+        // check if we pressed the button
+        if (newButtonState == 0 && previousButtonState == 1) {
+            button_event_data_t event = {BUTTON_PRESSED, xTaskGetTickCount()};
+            xQueueSend(button_event_queue, &event, 0);
         }
 
+        // check if we released the button
+        if (newButtonState == 1 && previousButtonState == 0) {
+            button_event_data_t event = {BUTTON_RELEASED, xTaskGetTickCount()};
+            xQueueSend(button_event_queue, &event, 0); 
+        }
+
+        previousButtonState = newButtonState;
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 }
 
 void ledLightTask() {
-    while (true) {
-        uint32_t notificationValue;
-        xTaskNotifyWait(0, 0, &notificationValue, portMAX_DELAY);
+    // create a button event data structure
+    button_event_data_t button_pressed_event = {BUTTON_RELEASED, 0};
 
-        if(notificationValue) {
-            led_strip_set_pixel(led_strip, 25/2, 15, 15, 15); // gloomy green light on middle led
-        } else {
-            led_strip_clear(led_strip);
+    while (true) {
+        BaseType_t return_type = xQueueReceive(button_event_queue, &button_pressed_event, 3000 / portTICK_PERIOD_MS);
+
+        if(return_type == pdTRUE) {
+            // check if we pressed or released the button
+            if(button_pressed_event.event == BUTTON_PRESSED) {
+                led_strip_set_pixel(led_strip, 25/2, 0, 50, 0); // gloomy green light on middle led
+            } else {
+                led_strip_clear(led_strip);
+            }
+        }else {
+            // we did not get an event in expected time, check if the last event was pressed
+            if(button_pressed_event.event == BUTTON_PRESSED) {
+                // do something special
+                for (int i = 0; i < 25; i++) {
+                    led_strip_clear(led_strip);
+                    led_strip_set_pixel(led_strip, i, 50, 0, 0);
+                    led_strip_refresh(led_strip);
+                    vTaskDelay(50 / portTICK_PERIOD_MS);
+                }
+            }
         }
         
         led_strip_refresh(led_strip);
@@ -85,6 +116,8 @@ void app_main(void)
 
     configureGPIOButton();
     configureLED();
+
+    button_event_queue = xQueueCreate(100, sizeof(button_event_data_t));
 
     xTaskCreate(checkButtonPress, "CHECK_BUTTON", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gButtonCheckTaskHandle);
     xTaskCreate(ledLightTask, "LED_LIGHT", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gLedTaskHandle);
