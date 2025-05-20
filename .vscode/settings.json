@@ -8,14 +8,16 @@
         "ESP_ROM_ELF_DIR": "C:\\Users\\Nico\\.espressif\\tools\\esp-rom-elfs\\20240305/",
         "IDF_TARGET": "esp32c3"
     },
-    "idf.espIdfPathWin": "C:\\Users\\Nico\\esp\\v5.3.1\\esp-idf",
+    "idf.espIdfPathWin": "C:\\Users\\nicok\\esp\\v5.3.2\\esp-idf",
     "idf.openOcdConfigs": ["board/esp32c3-builtin.cfg"],
-    "idf.portWin": "COM5",
+    "idf.portWin": "COM4",
     "idf.pythonBinPathWin": "C:\\Users\\Nico\\.espressif\\python_env\\idf5.3_py3.11_env\\Scripts\\python.exe",
-    "idf.toolsPathWin": "C:\\Users\\Nico\\.espressif",
+    "idf.toolsPathWin": "C:\\Users\\nicok\\.espressif",
     "idf.flashType": "UART",
     "files.associations": {
-        "gpio.h": "c"
+        "gpio.h": "c",
+        "led_strip.h": "c"
     },
-    "idf.port": "/dev/ttyACM0"
+    "idf.port": "/dev/ttyACM0",
+    "idf.pythonInstallPath": "C:\\Users\\nicok\\.espressif\\tools\\idf-python\\3.11.2\\python.exe"
 }

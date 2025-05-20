@@ -5,6 +5,8 @@
 #include "freertos/FreeRTOS.h"
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include "esp_wifi.h"
+
 
 #define LEFT_BUTTON_GPIO 9
 
@@ -109,17 +111,64 @@ void ledLightTask() {
     }
 }
 
+static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        printf("WiFi disconnected, trying to reconnect...\n");
+        esp_wifi_connect();
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        printf("Got IP: " IPSTR "\n", IP2STR(&event->ip_info.ip));
+    }
+}
+
+void wifi_init_sta(void)
+{
+    ESP_ERROR_CHECK(esp_netif_init());
+
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    esp_netif_inherent_config_t esp_netif_config = ESP_NETIF_INHERENT_DEFAULT_WIFI_STA();
+    esp_netif_t *netif = esp_netif_create_wifi(WIFI_IF_STA, &esp_netif_config);
+    esp_wifi_set_default_wifi_sta_handlers();
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
+
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = "...",
+            .password = "...",
+            .scan_method = WIFI_FAST_SCAN,
+            .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
+            .threshold.rssi = -127,
+            .threshold.authmode = WIFI_AUTH_OPEN,
+        },
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_connect();
+
+}
+
 void app_main(void)
 {
-    s = xSemaphoreCreateCounting(100, 0);
-    printf("Start of Program\n");
+    wifi_init_sta();
+    // s = xSemaphoreCreateCounting(100, 0);
+    // printf("Start of Program\n");
 
-    configureGPIOButton();
-    configureLED();
+    // configureGPIOButton();
+    // configureLED();
 
-    button_event_queue = xQueueCreate(100, sizeof(button_event_data_t));
+    // button_event_queue = xQueueCreate(100, sizeof(button_event_data_t));
 
-    xTaskCreate(checkButtonPress, "CHECK_BUTTON", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gButtonCheckTaskHandle);
-    xTaskCreate(ledLightTask, "LED_LIGHT", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gLedTaskHandle);
-    assert(gLedTaskHandle != NULL && gButtonCheckTaskHandle != NULL);
+    // xTaskCreate(checkButtonPress, "CHECK_BUTTON", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gButtonCheckTaskHandle);
+    // xTaskCreate(ledLightTask, "LED_LIGHT", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gLedTaskHandle);
+    // assert(gLedTaskHandle != NULL && gButtonCheckTaskHandle != NULL);
 }
