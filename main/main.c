@@ -1,174 +1,160 @@
 #include <stdio.h>
 #include <stdbool.h>
-#include "led_strip.h"
-#include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include <freertos/task.h>
-#include <freertos/queue.h>
-#include "esp_wifi.h"
+#include <memory.h>
+#include <driver/uart.h>
 
+static uint8_t auchCRCHi[] = {
+    0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
+    0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,
+    0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01,
+    0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41,
+    0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81,
+    0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0,
+    0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01,
+    0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40,
+    0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
+    0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,
+    0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01,
+    0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41,
+    0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
+    0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,
+    0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01,
+    0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41,
+    0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
+    0x40
+};
 
-#define LEFT_BUTTON_GPIO 9
+static uint8_t auchCRCLo[] = {
+    0x00, 0xC0, 0xC1, 0x01, 0xC3, 0x03, 0x02, 0xC2, 0xC6, 0x06, 0x07, 0xC7, 0x05, 0xC5, 0xC4,
+    0x04, 0xCC, 0x0C, 0x0D, 0xCD, 0x0F, 0xCF, 0xCE, 0x0E, 0x0A, 0xCA, 0xCB, 0x0B, 0xC9, 0x09,
+    0x08, 0xC8, 0xD8, 0x18, 0x19, 0xD9, 0x1B, 0xDB, 0xDA, 0x1A, 0x1E, 0xDE, 0xDF, 0x1F, 0xDD,
+    0x1D, 0x1C, 0xDC, 0x14, 0xD4, 0xD5, 0x15, 0xD7, 0x17, 0x16, 0xD6, 0xD2, 0x12, 0x13, 0xD3,
+    0x11, 0xD1, 0xD0, 0x10, 0xF0, 0x30, 0x31, 0xF1, 0x33, 0xF3, 0xF2, 0x32, 0x36, 0xF6, 0xF7,
+    0x37, 0xF5, 0x35, 0x34, 0xF4, 0x3C, 0xFC, 0xFD, 0x3D, 0xFF, 0x3F, 0x3E, 0xFE, 0xFA, 0x3A,
+    0x3B, 0xFB, 0x39, 0xF9, 0xF8, 0x38, 0x28, 0xE8, 0xE9, 0x29, 0xEB, 0x2B, 0x2A, 0xEA, 0xEE,
+    0x2E, 0x2F, 0xEF, 0x2D, 0xED, 0xEC, 0x2C, 0xE4, 0x24, 0x25, 0xE5, 0x27, 0xE7, 0xE6, 0x26,
+    0x22, 0xE2, 0xE3, 0x23, 0xE1, 0x21, 0x20, 0xE0, 0xA0, 0x60, 0x61, 0xA1, 0x63, 0xA3, 0xA2,
+    0x62, 0x66, 0xA6, 0xA7, 0x67, 0xA5, 0x65, 0x64, 0xA4, 0x6C, 0xAC, 0xAD, 0x6D, 0xAF, 0x6F,
+    0x6E, 0xAE, 0xAA, 0x6A, 0x6B, 0xAB, 0x69, 0xA9, 0xA8, 0x68, 0x78, 0xB8, 0xB9, 0x79, 0xBB,
+    0x7B, 0x7A, 0xBA, 0xBE, 0x7E, 0x7F, 0xBF, 0x7D, 0xBD, 0xBC, 0x7C, 0xB4, 0x74, 0x75, 0xB5,
+    0x77, 0xB7, 0xB6, 0x76, 0x72, 0xB2, 0xB3, 0x73, 0xB1, 0x71, 0x70, 0xB0, 0x50, 0x90, 0x91,
+    0x51, 0x93, 0x53, 0x52, 0x92, 0x96, 0x56, 0x57, 0x97, 0x55, 0x95, 0x94, 0x54, 0x9C, 0x5C,
+    0x5D, 0x9D, 0x5F, 0x9F, 0x9E, 0x5E, 0x5A, 0x9A, 0x9B, 0x5B, 0x99, 0x59, 0x58, 0x98, 0x88,
+    0x48, 0x49, 0x89, 0x4B, 0x8B, 0x8A, 0x4A, 0x4E, 0x8E, 0x8F, 0x4F, 0x8D, 0x4D, 0x4C, 0x8C,
+    0x44, 0x84, 0x85, 0x45, 0x87, 0x47, 0x46, 0x86, 0x82, 0x42, 0x43, 0x83, 0x41, 0x81, 0x80,
+    0x40
+};
 
-#define TASK_STACKSIZE 2048
-#define TASK_PRIORITY 3
-
-static led_strip_handle_t led_strip;
-
-TaskHandle_t gLedTaskHandle = NULL;
-TaskHandle_t gButtonCheckTaskHandle = NULL;
-
-typedef enum {
-    BUTTON_PRESSED,
-    BUTTON_RELEASED
-} button_event_type_t;
-
-typedef struct {
-    button_event_type_t event;
-    TickType_t timestamp;
-} button_event_data_t;
-
-QueueHandle_t button_event_queue = NULL;
-
-SemaphoreHandle_t s = NULL;
-
-static void configureLED() {
-    led_strip_config_t strip_config = {
-        .strip_gpio_num = 8,
-        .max_leds = 25, 
+void configureUART() {
+    uart_config_t uart_config = {
+        .baud_rate = 19200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
-    led_strip_rmt_config_t rmt_config = {
-        .resolution_hz = 10 * 1000 * 1000,
-        .flags.with_dma = false,
-    };
-    led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip);
-    /* Set all LED off to clear all pixels */
-    led_strip_clear(led_strip);
+
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM_1, &uart_config));
+    ESP_ERROR_CHECK(uart_set_pin(UART_NUM_1, 21, 20, 9, UART_PIN_NO_CHANGE));
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_1, 256 * 2, 256 * 2, 10, NULL, 0));
+    ESP_ERROR_CHECK(uart_set_mode(UART_NUM_1, UART_MODE_RS485_HALF_DUPLEX));
 }
 
-static void configureGPIOButton() {
-    gpio_config_t gpioConfigIn = {
-        .pin_bit_mask = (1 << LEFT_BUTTON_GPIO),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = true,
-        .pull_down_en = false,
-        .intr_type = GPIO_INTR_DISABLE};
-    gpio_config(&gpioConfigIn);
-}
+uint16_t modbus_crc16(const uint8_t *buf, uint16_t len) {
+    uint8_t uchCRCHi = 0xFF;
+    uint8_t uchCRCLo = 0xFF;
+    uint8_t uIndex;
 
-void checkButtonPress() {
-    int previousButtonState = 1;
-    int newButtonState = 0;
-    
-    while (true) {
-        newButtonState = gpio_get_level(LEFT_BUTTON_GPIO);
-
-        // check if we pressed the button
-        if (newButtonState == 0 && previousButtonState == 1) {
-            button_event_data_t event = {BUTTON_PRESSED, xTaskGetTickCount()};
-            xQueueSend(button_event_queue, &event, 0);
-        }
-
-        // check if we released the button
-        if (newButtonState == 1 && previousButtonState == 0) {
-            button_event_data_t event = {BUTTON_RELEASED, xTaskGetTickCount()};
-            xQueueSend(button_event_queue, &event, 0); 
-        }
-
-        previousButtonState = newButtonState;
-        vTaskDelay(50 / portTICK_PERIOD_MS);
+    while(len--) {
+        uIndex = uchCRCLo ^ *buf++;
+        uchCRCLo = uchCRCHi ^ auchCRCHi[uIndex];
+        uchCRCHi = auchCRCLo[uIndex];
     }
+    return (uchCRCHi << 8 | uchCRCLo);
 }
 
-void ledLightTask() {
-    // create a button event data structure
-    button_event_data_t button_pressed_event = {BUTTON_RELEASED, 0};
+// --- Modbus Frame senden ---
+void modbus_send_frame(uint8_t slave_addr, uint8_t function_code, const uint8_t *data, uint8_t data_len) {
+    uint8_t frame[256];
+    uint16_t pos = 0;
 
-    while (true) {
-        BaseType_t return_type = xQueueReceive(button_event_queue, &button_pressed_event, 3000 / portTICK_PERIOD_MS);
+    frame[pos++] = slave_addr;
+    frame[pos++] = function_code;
 
-        if(return_type == pdTRUE) {
-            // check if we pressed or released the button
-            if(button_pressed_event.event == BUTTON_PRESSED) {
-                led_strip_set_pixel(led_strip, 25/2, 0, 50, 0); // gloomy green light on middle led
-            } else {
-                led_strip_clear(led_strip);
+    memcpy(&frame[pos], data, data_len);
+    pos += data_len;
+
+    uint16_t crc = modbus_crc16(frame, pos);
+    frame[pos++] = crc & 0xFF;        // CRC Low Byte
+    frame[pos++] = (crc >> 8) & 0xFF; // CRC High Byte
+
+    uart_write_bytes(UART_NUM_1, (const char *)frame, pos);
+
+    printf("Gesendet: ");
+    for (int i = 0; i < pos; i++) printf("%02X ", frame[i]);
+    printf("\n");
+}
+
+
+int modbus_receive_frame(uint8_t *slave_addr, uint8_t *function_code, uint8_t *data, uint8_t *data_len) {
+    uint8_t buf[256];
+    int len = uart_read_bytes(UART_NUM_1, buf, sizeof(buf), pdMS_TO_TICKS(1000)); // 1s Timeout
+
+    if (len < 5) { // mindestens Slave(1)+Func(1)+CRC(2)+mind 1 Byte Data
+        printf("Frame zu kurz empfangen: %d Bytes\n", len);
+        return -1;
+    }
+
+    uint16_t received_crc = buf[len-2] | (buf[len-1] << 8);
+    uint16_t calc_crc = modbus_crc16(buf, len - 2);
+
+    if (received_crc != calc_crc) {
+        printf("CRC Fehler: empfangen %04X, berechnet %04X\n", received_crc, calc_crc);
+        return -2;
+    }
+
+    *slave_addr = buf[0];
+    *function_code = buf[1];
+    *data_len = len - 4; // ohne Addr, Func, CRC
+    memcpy(data, &buf[2], *data_len);
+
+    printf("Empfangen: ");
+    for (int i = 0; i < len; i++) printf("%02X ", buf[i]);
+    printf("\n");
+
+    return 0;
+}
+
+void modbus_test_task() {
+    uint8_t slave = 0x01;
+    uint8_t func = 0x03;
+    uint8_t data[] = {0x00, 0x10, 0x00, 0x01}; // Beispiel: Register 0x0010, Länge 1
+
+    while (1) {
+        printf("Sende Modbus-Frame...\n");
+        modbus_send_frame(slave, func, data, sizeof(data));
+
+        // Auf Antwort warten
+        uint8_t recv_slave, recv_func, recv_data[252], recv_len;
+        int res = modbus_receive_frame(&recv_slave, &recv_func, recv_data, &recv_len);
+
+        if (res == 0) {
+            printf("Modbus Frame empfangen OK: Slave 0x%02X, Funktion 0x%02X, Daten Länge: %d\n", recv_slave, recv_func, recv_len);
+            printf("Daten: ");
+            for (int i = 0; i < recv_len; i++) {
+                printf("%02X ", recv_data[i]);
             }
-        }else {
-            // we did not get an event in expected time, check if the last event was pressed
-            if(button_pressed_event.event == BUTTON_PRESSED) {
-                // do something special
-                for (int i = 0; i < 25; i++) {
-                    led_strip_clear(led_strip);
-                    led_strip_set_pixel(led_strip, i, 50, 0, 0);
-                    led_strip_refresh(led_strip);
-                    vTaskDelay(50 / portTICK_PERIOD_MS);
-                }
-            }
+            printf("\n");
+        } else {
+            printf("Empfangsfehler: %d\n", res);
         }
-        
-        led_strip_refresh(led_strip);
+
+        vTaskDelay(pdMS_TO_TICKS(3000)); // 3 Sekunden warten
     }
-}
-
-static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
-{
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        printf("WiFi disconnected, trying to reconnect...\n");
-        esp_wifi_connect();
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        printf("Got IP: " IPSTR "\n", IP2STR(&event->ip_info.ip));
-    }
-}
-
-void wifi_init_sta(void)
-{
-    ESP_ERROR_CHECK(esp_netif_init());
-
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    esp_netif_inherent_config_t esp_netif_config = ESP_NETIF_INHERENT_DEFAULT_WIFI_STA();
-    esp_netif_t *netif = esp_netif_create_wifi(WIFI_IF_STA, &esp_netif_config);
-    esp_wifi_set_default_wifi_sta_handlers();
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL));
-
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = "...",
-            .password = "...",
-            .scan_method = WIFI_FAST_SCAN,
-            .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
-            .threshold.rssi = -127,
-            .threshold.authmode = WIFI_AUTH_OPEN,
-        },
-    };
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    esp_wifi_connect();
-
 }
 
 void app_main(void)
 {
-    wifi_init_sta();
-    // s = xSemaphoreCreateCounting(100, 0);
-    // printf("Start of Program\n");
-
-    // configureGPIOButton();
-    // configureLED();
-
-    // button_event_queue = xQueueCreate(100, sizeof(button_event_data_t));
-
-    // xTaskCreate(checkButtonPress, "CHECK_BUTTON", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gButtonCheckTaskHandle);
-    // xTaskCreate(ledLightTask, "LED_LIGHT", TASK_STACKSIZE, NULL, TASK_PRIORITY, &gLedTaskHandle);
-    // assert(gLedTaskHandle != NULL && gButtonCheckTaskHandle != NULL);
+    configureUART();
+    modbus_test_task();
 }
